@@ -1,69 +1,81 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Header from './components/Header'
 import InputPanel from './components/InputPanel'
-import ReportPanel from './components/ReportPanel'
-import { auditText } from './lib/auditEngine'
-import { SCENARIOS } from './data/scenarios'
+import EvaluationPanel from './components/EvaluationPanel'
+import SafeOutputPanel from './components/SafeOutputPanel'
+import IdentifierReference from './components/IdentifierReference'
+import { detectAll } from './utils/detectionRules'
+import { scoreFindings } from './utils/riskScore'
+import { classifyPurpose } from './utils/classifyPurpose'
+import { SAMPLE_DRAFTS } from './data/sampleDrafts'
 
-const AUDIT_DELAY_MS = 1200
+const DEBOUNCE_MS = 300
 
 function App() {
   const [activeScenario, setActiveScenario] = useState(null)
   const [draftText, setDraftText] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [auditResult, setAuditResult] = useState(null)
-  const [copyConfirmed, setCopyConfirmed] = useState(false)
+  const [scannedText, setScannedText] = useState('')
+  const [purposeOverride, setPurposeOverride] = useState(null)
+
+  // Debounced re-scan on manual typing; scenario selection scans immediately.
+  useEffect(() => {
+    const handle = setTimeout(() => setScannedText(draftText), DEBOUNCE_MS)
+    return () => clearTimeout(handle)
+  }, [draftText])
 
   const handleSelectScenario = (idx) => {
     setActiveScenario(idx)
-    setDraftText(SCENARIOS[idx].text)
-    setAuditResult(null)
+    setDraftText(SAMPLE_DRAFTS[idx].text)
+    setScannedText(SAMPLE_DRAFTS[idx].text)
+    setPurposeOverride(null)
   }
 
   const handleDraftChange = (value) => {
     setDraftText(value)
     setActiveScenario(null)
-    setAuditResult(null)
+    setPurposeOverride(null)
   }
 
-  const handleRunAudit = () => {
-    if (!draftText.trim() || isLoading) return
-    setIsLoading(true)
-    setAuditResult(null)
-    setTimeout(() => {
-      setAuditResult(auditText(draftText))
-      setIsLoading(false)
-    }, AUDIT_DELAY_MS)
+  const handleClear = () => {
+    setDraftText('')
+    setScannedText('')
+    setActiveScenario(null)
+    setPurposeOverride(null)
   }
+
+  const hasDraft = scannedText.trim().length > 0
+  const matches = useMemo(() => detectAll(scannedText), [scannedText])
+  const scored = useMemo(() => scoreFindings(matches), [matches])
+  const detectedPurposeId = useMemo(() => classifyPurpose(scannedText).purposeId, [scannedText])
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950">
+    <div className="flex min-h-screen flex-col bg-slate-100">
       <Header />
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-8">
-        <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-2">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-6">
+        <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-3">
           <InputPanel
             draftText={draftText}
-            setDraftText={handleDraftChange}
+            onDraftChange={handleDraftChange}
             activeScenario={activeScenario}
             onSelectScenario={handleSelectScenario}
-            onRunAudit={handleRunAudit}
-            isLoading={isLoading}
+            onClear={handleClear}
           />
-          <ReportPanel
-            isLoading={isLoading}
-            auditResult={auditResult}
-            copyConfirmed={copyConfirmed}
-            setCopyConfirmed={setCopyConfirmed}
+          <EvaluationPanel matches={matches} scored={scored} hasDraft={hasDraft} />
+          <SafeOutputPanel
+            hasDraft={hasDraft}
+            detectedPurposeId={detectedPurposeId}
+            purposeOverride={purposeOverride}
+            onOverridePurpose={setPurposeOverride}
           />
         </div>
 
-        <footer className="mt-8 rounded-xl border border-slate-800/80 bg-slate-900/40 px-4 py-3 text-center text-[11px] leading-relaxed text-slate-500">
-          This is a conceptual demo of a detection UX, built on a local
-          regex/string-matching rules engine — it is not a validated
-          compliance product, ML classifier, or legal advice. Real
-          deployments require a reviewed NLP/PHI-detection engine and legal
-          sign-off.
+        <IdentifierReference />
+
+        <footer className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-center text-[11px] leading-relaxed text-slate-400">
+          Prototype only. Not a compliance guarantee. Human review required — this tool highlights
+          potential risks using a local, deterministic rules engine but does not guarantee HIPAA
+          compliance.
         </footer>
       </main>
     </div>
