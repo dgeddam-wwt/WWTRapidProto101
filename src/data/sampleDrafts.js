@@ -11,9 +11,9 @@ Your patient ID is MRN-884392.`,
   },
   {
     id: 'medium',
-    label: 'Medium Risk (First Name / Date)',
-    description: 'First name + date, no direct identifier',
-    text: `Hi John, just a note about your appointment on July 22, 2026. See you then!`,
+    label: 'Medium Risk (Full Name / Date)',
+    description: 'Full patient name + date, no direct contact/record identifier',
+    text: `Hi John Smith, just a note about your appointment on July 22, 2026. See you then!`,
   },
   {
     id: 'safe',

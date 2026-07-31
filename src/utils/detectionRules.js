@@ -6,12 +6,20 @@ export const SEVERITY = {
   DIRECT: 'Direct',
   QUASI: 'Quasi',
   CONTEXTUAL: 'Contextual',
+  MANUAL_REVIEW: 'Manual Review',
+  INFO: 'Info',
 }
 
 export const SEVERITY_POINTS = {
   [SEVERITY.DIRECT]: 3,
   [SEVERITY.QUASI]: 2,
   [SEVERITY.CONTEXTUAL]: 1,
+  // "Manual Review" = detected but context is ambiguous (e.g. a phone/email that
+  // may belong to the clinic, not the patient). Low weight, never forces High.
+  [SEVERITY.MANUAL_REVIEW]: 1,
+  // "Info" = surfaced for the reviewer but treated as low concern in this
+  // prototype (e.g. a first name alone). 0 points, no tier impact.
+  [SEVERITY.INFO]: 0,
 }
 
 export const DETECTION_TIER = {
@@ -77,6 +85,51 @@ function match(text, index, categoryId, category, severity, note) {
   }
 }
 
+// --- Context awareness for contact identifiers -----------------------------
+// Phone numbers and email addresses are only Direct patient identifiers when
+// they route to the patient. Clinic callback numbers and office mailboxes are
+// operational contact info, not PHI. We look at the words immediately around a
+// match to decide: patient-oriented → Direct; clinic/operational → Manual
+// Review; unclear → Manual Review (never auto-escalated to a Critical Leak).
+
+const CONTEXT_RADIUS = 50
+
+// Operational / clinic wording near a phone number.
+const CLINIC_PHONE_CONTEXT = [
+  'call us', 'call our office', 'contact our office', 'clinic phone',
+  'main office', 'front desk', 'reschedule, call', 'questions, call', 'reach us at',
+]
+// Patient-oriented wording near a phone number.
+const PATIENT_PHONE_CONTEXT = [
+  'patient phone', 'mobile', 'cell', 'home phone', "'s number", 'contact number on file',
+]
+
+// Operational / clinic wording near an email address.
+const CLINIC_EMAIL_CONTEXT = [
+  'email us', 'contact us', 'contact our office', 'clinic email', 'office email',
+  'care team', 'front desk', 'questions, email', 'reach us at', 'send questions to',
+  'reschedule, email',
+]
+// Patient-oriented wording near an email address.
+const PATIENT_EMAIL_CONTEXT = [
+  'patient email', "'s email", 'email on file', 'personal email',
+  'send to the patient at', 'patient contact',
+]
+
+function contextWindow(text, index, length) {
+  const start = Math.max(0, index - CONTEXT_RADIUS)
+  const end = Math.min(text.length, index + length + CONTEXT_RADIUS)
+  return text.slice(start, end).toLowerCase()
+}
+
+// Patient wording wins over clinic wording; when neither is present the caller
+// treats it as "unclear".
+function classifyContact(window, clinicPhrases, patientPhrases) {
+  if (patientPhrases.some((p) => window.includes(p))) return 'patient'
+  if (clinicPhrases.some((p) => window.includes(p))) return 'clinic'
+  return 'unclear'
+}
+
 // --- Tier A: regex-reliable -------------------------------------------------
 
 function detectDates(text) {
@@ -98,7 +151,15 @@ function detectTelephone(text) {
   for (const m of finditer(re, text)) {
     const precededByFax = /\bfax[:\s]*$/i.test(text.slice(Math.max(0, m.index - 8), m.index))
     if (precededByFax) continue
-    out.push(match(m[0], m.index, 4, 'Telephone numbers', SEVERITY.DIRECT, 'Phone numbers are a direct identifier and let anyone contact the patient.'))
+    const window = contextWindow(text, m.index, m[0].length)
+    const kind = classifyContact(window, CLINIC_PHONE_CONTEXT, PATIENT_PHONE_CONTEXT)
+    if (kind === 'patient') {
+      out.push(match(m[0], m.index, 4, 'Telephone numbers', SEVERITY.DIRECT, 'Phone number detected. Surrounding text points to a patient phone number — a direct identifier that lets anyone contact the patient.'))
+    } else if (kind === 'clinic') {
+      out.push(match(m[0], m.index, 4, 'Telephone numbers', SEVERITY.MANUAL_REVIEW, 'Phone number detected. Verify whether this is a patient phone number or a clinic callback number. Nearby wording suggests a likely clinic callback number.'))
+    } else {
+      out.push(match(m[0], m.index, 4, 'Telephone numbers', SEVERITY.MANUAL_REVIEW, 'Phone number detected. Verify whether this is a patient phone number or a clinic callback number.'))
+    }
   }
   return out
 }
@@ -112,9 +173,19 @@ function detectFax(text) {
 
 function detectEmail(text) {
   const re = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g
-  return finditer(re, text).map((m) =>
-    match(m[0], m.index, 6, 'Email addresses', SEVERITY.DIRECT, 'Email addresses are a direct identifier and route directly to the patient.')
-  )
+  const out = []
+  for (const m of finditer(re, text)) {
+    const window = contextWindow(text, m.index, m[0].length)
+    const kind = classifyContact(window, CLINIC_EMAIL_CONTEXT, PATIENT_EMAIL_CONTEXT)
+    if (kind === 'patient') {
+      out.push(match(m[0], m.index, 6, 'Email addresses', SEVERITY.DIRECT, 'Email address detected. Surrounding text points to a patient email address — a direct identifier that routes directly to the patient.'))
+    } else if (kind === 'clinic') {
+      out.push(match(m[0], m.index, 6, 'Email addresses', SEVERITY.MANUAL_REVIEW, 'Email address detected. Verify whether this belongs to the patient or the clinic/office. Nearby wording suggests a likely clinic/office email address.'))
+    } else {
+      out.push(match(m[0], m.index, 6, 'Email addresses', SEVERITY.MANUAL_REVIEW, 'Email address detected. Verify whether this belongs to the patient or the clinic/office.'))
+    }
+  }
+  return out
 }
 
 function detectSSN(text) {
@@ -181,13 +252,25 @@ function detectGeographic(text) {
 
 // --- Tier B: heuristic -------------------------------------------------
 
+// Name handling nuance (prototype heuristic):
+// - Full patient name  → Quasi (2 pts), Medium-style risk (not an auto Critical Leak)
+// - First name only    → Info (0 pts), surfaced but no effect on the score/tier
+// - Provider ("Dr. X") → Contextual (1 pt), manual review — clinical context, not
+//   necessarily a patient identifier.
+const FULL_NAME_NOTE =
+  'Full patient name detected. Treated as a Medium-risk quasi-identifier in this prototype. Possible PHI exposure risk — requires human review. Prototype only, not a compliance determination.'
+const FIRST_NAME_NOTE =
+  'First name only. Treated as low concern in this prototype: informational, 0 points, no effect on the risk score. Worth a manual check only if paired with other identifiers.'
+const PROVIDER_NOTE =
+  'Provider name detected. May add clinical context but is not necessarily a patient identifier. Flagged for manual review, not scored as a direct patient identifier.'
+
 function detectNames(text) {
   const out = []
 
   for (const name of SYNTHETIC_NAMES) {
     const re = new RegExp(`\\b${name}\\b`, 'g')
     for (const m of finditer(re, text)) {
-      out.push(match(m[0], m.index, 1, 'Names', SEVERITY.DIRECT, 'A full name is a direct identifier and the clearest link back to a specific patient.'))
+      out.push(match(m[0], m.index, 1, 'Names', SEVERITY.QUASI, FULL_NAME_NOTE))
     }
   }
 
@@ -203,17 +286,15 @@ function detectNames(text) {
         nameIndex,
         1,
         'Names',
-        isFullName ? SEVERITY.DIRECT : SEVERITY.CONTEXTUAL,
-        isFullName
-          ? 'A full name is a direct identifier and the clearest link back to a specific patient.'
-          : 'A first name alone is a lower-severity contextual identifier, but still worth removing.'
+        isFullName ? SEVERITY.QUASI : SEVERITY.INFO,
+        isFullName ? FULL_NAME_NOTE : FIRST_NAME_NOTE
       )
     )
   }
 
   const providerRe = /\bDr\.\s+[A-Z][a-zA-Z'-]+\b/g
   for (const m of finditer(providerRe, text)) {
-    out.push(match(m[0], m.index, 1, 'Provider reference (contextual)', SEVERITY.CONTEXTUAL, 'A named provider can indirectly narrow down the identity of the patient being discussed.'))
+    out.push(match(m[0], m.index, 1, 'Provider reference (contextual)', SEVERITY.CONTEXTUAL, PROVIDER_NOTE))
   }
 
   return out

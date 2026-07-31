@@ -5,9 +5,9 @@ export const SCENARIOS = [
     text: "Hi John Smith, I'm reaching out to confirm your cardiology consultation with Dr. Evans on 07/22/2026. Please call us at 415-555-0199.",
   },
   {
-    label: 'Medium Risk (First Name / Date)',
-    description: 'First name + bare date',
-    text: 'Confirming appointment for Eleni on 10/12. Please remember your chart.',
+    label: 'Medium Risk (Full Name / Date)',
+    description: 'Full patient name + bare date, no direct contact/record identifier',
+    text: 'Confirming appointment for John Smith on 10/12. Please remember your chart.',
   },
   {
     label: 'Safe Example',

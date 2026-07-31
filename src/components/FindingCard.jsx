@@ -4,6 +4,8 @@ const SEVERITY_STYLE = {
   [SEVERITY.DIRECT]: 'border-red-200 bg-red-50 text-red-700',
   [SEVERITY.QUASI]: 'border-amber-200 bg-amber-50 text-amber-700',
   [SEVERITY.CONTEXTUAL]: 'border-slate-200 bg-slate-100 text-slate-600',
+  [SEVERITY.MANUAL_REVIEW]: 'border-blue-200 bg-blue-50 text-blue-700',
+  [SEVERITY.INFO]: 'border-slate-200 bg-slate-50 text-slate-500',
 }
 
 export default function FindingCard({ finding }) {
