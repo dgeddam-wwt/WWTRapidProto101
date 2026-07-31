@@ -1,4 +1,4 @@
-# Step 2 — Human Refinement Prompt
+#Human Refinement Prompt
 
 **Attach:** Selected output definition
 
