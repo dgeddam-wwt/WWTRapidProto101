@@ -44,10 +44,4 @@ Also it should be able to trigger the payment once everything checks out, to sav
 
 Feel free to use some of our real invoice data as examples so it feels realistic.
 
-## What Good Looks Like
 
-Just make it good. It should work and people should like it. Should be pretty accurate.
-
-Let me know if you have questions, but ideally just run with it — I don't have a ton of time this week.
-
-Thanks!
