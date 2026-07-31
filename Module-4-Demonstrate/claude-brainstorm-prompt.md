@@ -31,36 +31,10 @@ For each concept provide:
 - Why it creates value
 - Why it is suitable for rapid prototyping
 
-4. Recommend the single concept you believe would create the strongest executive conversation.
 
-For the recommended concept provide:
 
-- Concept Name
-- One sentence description
-- Three step workflow
-- User interaction flow
-- Expected value
+5. What this prototype should NOT do
 
-Present the workflow using this format:
-
-[Concept Name]
-
-Step 1:
-Title:
-Description:
-
-Step 2:
-Title:
-Description:
-
-Step 3:
-Title:
-Description:
-
-5. Why this idea is prototype-worthy
-
-6. What this prototype should NOT do
-
-7. What am I missing?
+6. What am I missing?
 
 Focus on practical concepts that could be visualized in a browser-based prototype without requiring database integrations, EHR systems, production email systems, or backend medical infrastructure.

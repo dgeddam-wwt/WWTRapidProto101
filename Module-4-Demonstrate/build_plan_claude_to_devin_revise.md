@@ -5,6 +5,12 @@
 > exact detection, scoring, and UI behavior implemented in the delivered prototype, so
 > the app can be understood, demoed, or rebuilt from this file alone.
 
+> **Prototype heuristic, not a compliance determination.** This prototype does not
+> determine whether a message violates HIPAA. It surfaces possible identifier exposure
+> patterns and helps staff create a safer draft for human review. Every finding is a
+> "Potential Safe Harbor identifier detected" / "Possible PHI exposure risk" that
+> **requires human review** — never a compliance ruling.
+
 ---
 
 ## Product Objective
@@ -92,7 +98,7 @@ identifier reference, and a footer disclaimer.
 
 **Components**
 - Large text area
-- Test scenario buttons: **High Risk (Full PHI)** · **Medium Risk (First Name /
+- Test scenario buttons: **High Risk (Full PHI)** · **Medium Risk (Full Name /
   Date)** · **Safe Example**
 - Button: "Clear Draft" (disabled while textarea is empty)
 - Helper text: "Paste a patient communication to scan for potential identifiers."
@@ -111,17 +117,21 @@ states.
 #### 2a. Risk Scoring Logic (the "number logic")
 
 Each finding is assigned a **severity weight**, the weights are summed into a **risk
-score**, and the score maps to a tier. Any single high-severity (Direct) identifier
-forces the top tier regardless of score — because one exposed SSN or phone number is a
-critical leak on its own.
+score**, and the score maps to a tier. Any single high-severity (**Direct**) identifier
+forces the top tier regardless of score — because one exposed SSN, MRN, or a phone/email
+that routes to the **patient** is a critical leak on its own. Ambiguous contact info and
+first-name-only mentions never force it (see the three "Handling Nuance" sections
+below).
 
 **Severity weights**
 
-| Tier | Categories | Points each |
+| Tier | Points each | Categories |
 |---|---|---|
-| **Direct** (high severity) | Full name, SSN, MRN, account number, health plan beneficiary number, telephone, fax, email | **3** |
-| **Quasi** (moderate) | Dates (except year), address/city/ZIP, license/certificate number, vehicle ID, device ID, IP address, URL, clinical/sensitive context | **2** |
-| **Contextual** (low) | First-name-only, provider reference alone, general clinical terms (e.g. "medication list") without a person | **1** |
+| **Direct** (high severity) | **3** | SSN, MRN, account number, health plan beneficiary number, **patient** telephone, fax, **patient** email |
+| **Quasi** (moderate) | **2** | **Full patient name**, dates (except year), address/city/ZIP, license/certificate number, vehicle ID, device ID, IP address, URL, clinical/sensitive context |
+| **Contextual** (low) | **1** | Provider reference alone (e.g. "Dr. Evans"), general clinical terms (e.g. "medication list") without a person |
+| **Manual Review** (ambiguous) | **1** | Telephone or email whose context does **not** clearly mark it as the patient's — likely a clinic callback number or clinic/office mailbox |
+| **Info** (low concern) | **0** | First name only — surfaced for the reviewer but excluded from the score and the tier |
 
 **Risk score = sum of the weights of all findings.**
 
@@ -130,21 +140,81 @@ critical leak on its own.
 | Tier | Rule | Badge |
 |---|---|---|
 | **Safe** | score = 0 | Green — "Lower Risk Draft" |
-| **Medium** | score 1–3 **and** no Direct identifier present | Amber — "Potential PHI Detected" |
-| **High** | score ≥ 4 **or** any Direct identifier present | Red — "High Risk" |
+| **Medium** | score ≥ 1 **and** no Direct identifier present **and** score < 6 | Amber — "Potential PHI Detected" / "Possible PHI exposure risk" |
+| **High** | any Direct identifier present **or** score ≥ 6 (accumulated quasi/contextual identifiers) | Red — "High Risk" |
 | **Critical Leak** (sub-state of High) | any Direct identifier present | Red banner — "CRITICAL LEAK" (overrides the High badge text) |
 
+> The High threshold sits at **6** so a full patient name (Quasi 2) plus an appointment
+> date (Quasi 2) = score 4 stays **Medium**, not High. Info findings (0 pts) and Manual
+> Review findings (1 pt) never trigger the Critical Leak sub-state — only a **Direct**
+> identifier does.
+
 **Worked examples (these are the three test buttons):**
-- **High Risk (Full PHI):** full name (3, Direct) + clinical specialty (2, Quasi) +
-  provider reference (1, Contextual) + date (2, Quasi) + "medication list" (1,
-  Contextual) + phone (3, Direct) + email (3, Direct) + MRN (3, Direct) = **score 18**
-  → High, and a Direct identifier is present → **CRITICAL LEAK**.
-- **Medium Risk (First Name / Date):** first name (1) + date (2) = **score 3**, no
-  Direct identifier → **Medium**.
+- **High Risk (Full PHI):** full patient name (2, Quasi) + clinical specialty (2, Quasi)
+  + provider reference (1, Contextual) + date (2, Quasi) + "medication list" (1,
+  Contextual) + phone near "call us / reschedule, call" (1, Manual Review — likely
+  clinic callback) + email near "or email" (1, Manual Review — clinic/office mailbox) +
+  MRN (3, Direct) = **score 13** → High, and a Direct identifier (MRN) is present →
+  **CRITICAL LEAK**.
+- **Medium Risk (Full Name / Date):** full patient name (2, Quasi) + date (2, Quasi) =
+  **score 4**, no Direct identifier → **Medium**. (Full patient name plus appointment
+  date, but no phone, email, MRN, SSN, account number, or other direct contact/record
+  identifier.)
 - **Safe Example:** no identifiers = **score 0** → **Safe**.
 
-Display the numeric score in the UI (e.g. "Risk score: 18 · High") so the tier is
-explainable to a compliance officer, not opaque.
+Display the numeric score in the UI (e.g. "Risk score: 13 · High") so the tier is
+explainable to a reviewer, not opaque.
+
+#### 2a-i. Name Handling Nuance
+
+Names are treated by specificity, because a first name alone is a weak identifier while
+a full name is a meaningful one:
+
+- **First name only** (e.g. "Hi John") → **Info, 0 points, no tier impact.** Surfaced as
+  an informational/manual note so the reviewer can see it, but it does **not** raise the
+  risk score by itself and never creates Medium risk on its own.
+- **Full patient name** (e.g. "John Smith") → **Quasi, 2 points, Medium-style risk.**
+  Flagged as a "Potential Safe Harbor identifier detected" that requires human review —
+  **not** an automatic High/Critical determination.
+- **Provider name** (e.g. "Dr. Evans") → **Contextual, 1 point, manual review.** May add
+  clinical context but is not necessarily a patient identifier, so it is flagged for
+  review rather than scored as a direct patient identifier.
+
+#### 2a-ii. Telephone Number Handling Nuance
+
+Not every phone number in a patient message is the patient's — many are the clinic's own
+callback line. Context around the number decides:
+
+- **Clinic / operational context** — phrases like "call us", "call our office", "contact
+  our office", "clinic phone", "main office", "front desk", "reschedule, call",
+  "questions, call", "reach us at" → **Manual Review, 1 point** ("Likely clinic callback
+  number"), **not** Direct.
+- **Patient-oriented context** — phrases like "patient phone", "mobile", "cell", "home
+  phone", "John's number", "contact number on file" → **Direct, 3 points** (patient phone
+  number).
+- **Unclear** (no strong signal either way) → **Manual Review**, not Critical Leak.
+
+Finding explanation shown to the reviewer: *"Phone number detected. Verify whether this
+is a patient phone number or a clinic callback number."*
+
+#### 2a-iii. Email Address Handling Nuance
+
+Same principle for email: a clinic/office mailbox is operational contact info, not the
+patient's PHI. Context around the address decides:
+
+- **Clinic / operational context** — phrases like "email us", "contact us", "contact our
+  office", "clinic email", "office email", "care team", "front desk", "questions, email",
+  "reach us at", "send questions to", "reschedule, email" → **Manual Review, 1 point**
+  ("Likely clinic email address"), **not** Direct. Common clinic/office domains and
+  synthetic clinic emails are not flagged as Critical Leak when the surrounding text
+  clearly shows they are clinic contact information.
+- **Patient-oriented context** — phrases like "patient email", "John's email", "email on
+  file", "personal email", "send to the patient at", "patient contact" → **Direct, 3
+  points** (patient email address).
+- **Unclear** (no strong signal either way) → **Manual Review**, not Critical Leak.
+
+Finding explanation shown to the reviewer: *"Email address detected. Verify whether this
+belongs to the patient or the clinic/office."*
 
 #### 2b. Coverage Summary (all 18 shown)
 
@@ -167,7 +237,7 @@ Each detected finding shows:
   "Telephone numbers · Safe Harbor #4"), or, for clinical specialty/generic clinical
   terms, **"Sensitive context — not one of the 18"**
 - **Why it matters** — one short sentence
-- **Severity** — Direct / Quasi / Contextual and its point value
+- **Severity** — Direct / Quasi / Contextual / Manual Review / Info and its point value
 
 > Finding cards do not show a bracket "suggested replacement." The safe message is
 > produced by regeneration in Panel 3, not by find-and-replace.
@@ -263,9 +333,9 @@ text-detectable.
 |---|---|---|---|
 | 2 | Geographic (address/ZIP) | street: `\d{1,5}\s+\w+.*\s(Street\|St\|Ave\|Road\|Rd\|Blvd\|Lane\|Ln\|Drive\|Dr\|Way\|Ct)`; ZIP: `\b\d{5}(-\d{4})?\b` | Quasi |
 | 3 | Dates (except year) | `Month DD, YYYY`, `MM/DD/YYYY`, `MM-DD-YYYY`, relative ("next Tuesday", "tomorrow") | Quasi |
-| 4 | Telephone | `\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}` (excluded if immediately preceded by "fax") | Direct |
+| 4 | Telephone | `\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}` (excluded if immediately preceded by "fax"). **Context-aware:** patient context → Direct; clinic/operational or unclear context → Manual Review (see Telephone Number Handling Nuance) | Direct / Manual Review |
 | 5 | Fax | phone pattern preceded by "fax" | Direct |
-| 6 | Email | `[\w.+-]+@[\w-]+\.[\w.-]+` | Direct |
+| 6 | Email | `[\w.+-]+@[\w-]+\.[\w.-]+`. **Context-aware:** patient context → Direct; clinic/operational or unclear context → Manual Review (see Email Address Handling Nuance) | Direct / Manual Review |
 | 7 | SSN | `\b\d{3}-\d{2}-\d{4}\b` (hyphenated format only) | Direct |
 | 8 | MRN | `MRN[-\s:]?\d+`, "Medical Record Number: \d+" | Direct |
 | 9 | Health plan beneficiary | `HPB-\d+`, "Beneficiary ID \d+" | Direct |
@@ -278,7 +348,7 @@ text-detectable.
 
 | # | Category | Approach | Severity |
 |---|---|---|---|
-| 1 | Names | Synthetic name list (John Smith, Nina Specter, Audrey Miles, Marcus Lee); capitalized word(s) after a greeting ("Hi/Hello/Dear ___"); `Dr\.\s+[A-Z]\w+` for provider reference | Full name = Direct; first-name-only / provider reference = Contextual |
+| 1 | Names | Synthetic name list (John Smith, Nina Specter, Audrey Miles, Marcus Lee); capitalized word(s) after a greeting ("Hi/Hello/Dear ___"); `Dr\.\s+[A-Z]\w+` for provider reference | Full patient name = **Quasi (2)**; first-name-only = **Info (0)**; provider reference = **Contextual (1)** (see Name Handling Nuance) |
 | 12 | Vehicle ID / plate | alphanumeric near "plate"/"VIN" | Quasi |
 | 13 | Device ID / serial | alphanumeric near "Serial #"/"Device ID" | Quasi |
 | 18 | Any other unique code | catch-all `\b[A-Z]{2,}-?\d{3,}\b` (excluding spans already matched by other categories) → "possible identifier code" (low confidence) | Quasi |
@@ -329,16 +399,18 @@ Your patient ID is MRN-884392.
 
 | Detected | Category | Severity | Points |
 |---|---|---|---|
-| John Smith | Names · #1 | Direct | 3 |
+| John Smith | Names · #1 | Quasi | 2 |
 | cardiology consultation | Sensitive context — not one of the 18 | Quasi | 2 |
 | Dr. Evans | Provider reference (contextual) | Contextual | 1 |
 | July 22, 2026 | Dates (except year) · #3 | Quasi | 2 |
 | medication list | Sensitive context — not one of the 18 | Contextual | 1 |
-| 415-555-0199 | Telephone numbers · #4 | Direct | 3 |
-| careteam@kenstrel.example | Email addresses · #6 | Direct | 3 |
+| 415-555-0199 | Telephone numbers · #4 | Manual Review (likely clinic callback — near "call us / reschedule, call") | 1 |
+| careteam@kenstrel.example | Email addresses · #6 | Manual Review (clinic/office mailbox — no patient context) | 1 |
 | MRN-884392 | Medical record numbers · #8 | Direct | 3 |
 
-**Risk score = 18 → High · CRITICAL LEAK** (multiple Direct identifiers present).
+**Risk score = 13 → High · CRITICAL LEAK** (a Direct identifier, the MRN, is present).
+The clinic callback phone and clinic email are surfaced as Manual Review, not Direct —
+the MRN alone is what forces the Critical Leak sub-state.
 **Detected purpose:** Appointment confirmation (keyword "confirm").
 
 **Safe output**
@@ -349,16 +421,22 @@ Please log into your patient portal to review the date, time, and any preparatio
 If you need to make changes, contact our office through the portal or the number on file.
 ```
 
-### Scenario B — Medium Risk (First Name / Date)
+### Scenario B — Medium Risk (Full Name / Date)
 
 **Input**
 ```
-Hi John, just a note about your appointment on July 22, 2026. See you then!
+Hi John Smith, just a note about your appointment on July 22, 2026. See you then!
 ```
-**Findings & score:** first name "John" (Contextual, 1) + date "July 22, 2026"
-(Quasi, 2) = **score 3 → Medium** (no Direct identifier).
+**Findings & score:** full patient name "John Smith" (Quasi, 2) + date "July 22, 2026"
+(Quasi, 2) = **score 4 → Medium** (no Direct identifier — no phone, email, MRN, SSN,
+account number, or other direct contact/record identifier). A full patient name plus an
+appointment date is flagged for human review, but is **not** a Critical Leak.
 **Detected purpose:** General outreach (no strong keyword) → user can override.
 **Safe output:** General outreach template (or the overridden purpose's template).
+
+> Contrast with just a **first name** — "Hi John, just a note about your appointment on
+> July 22, 2026." The first name is Info (0 pts); only the date scores (Quasi, 2). The
+> first name does not raise the score by itself.
 
 ### Scenario C — Safe Example
 
@@ -475,6 +553,23 @@ The prototype is complete when:
 5. The risk badge shows the correct tier **and the numeric score**, following the
    documented formula, including the CRITICAL LEAK sub-state when a Direct identifier
    is present.
+
+5a. **Name, telephone, and email nuance edge cases** behave as documented:
+   - "Hi John, ... appointment on July 22, 2026." → **first name = Info (0 pts)**; the
+     first name does not raise the score. (Any Medium here comes from the date, not the
+     name.)
+   - "Hi John Smith, ... appointment on July 22, 2026." → **Medium** (full patient name
+     Quasi 2 + date Quasi 2 = 4); not a Critical Leak.
+   - "...Please call our office at 415-555-0199 if you need to reschedule." → phone =
+     **Manual Review** (likely clinic callback); **not** Critical Leak.
+   - "John Smith's mobile number is 415-555-0199." → phone = **Direct**; High / Critical
+     Leak.
+   - "Email us at careteam@kenstrel.example if you need to reschedule." → email =
+     **Manual Review** (likely clinic email); **not** Critical Leak.
+   - "John Smith's personal email is john.smith@example.com." → email = **Direct**; High
+     / Critical Leak.
+   - "Hi John Smith, ... Your patient ID is MRN-884392." → MRN = **Direct**; High /
+     Critical Leak (a direct record identifier).
 6. The safe output is a **purpose-adaptive regenerated message** (not bracket
    substitution) matching the detected purpose, with a working purpose-override
    dropdown.
@@ -500,7 +595,12 @@ calls, or LLM API calls.
 
 - Synthetic data only; no real patient information; no PHI storage.
 - No message sending; no autonomous send/block decisions.
-- No HIPAA compliance certification claims.
+- No HIPAA compliance certification claims. Findings are phrased as "Potential Safe
+  Harbor identifier detected" / "Possible PHI exposure risk" / "Requires human review" —
+  never "HIPAA Safe Harbor violation" and never a compliance determination.
+- **This prototype does not determine whether a message violates HIPAA. It surfaces
+  possible identifier exposure patterns and helps staff create a safer draft for human
+  review.** Every result is "Prototype only, not a compliance determination."
 - Human review always required. UI text used: "Prototype only. Not a compliance
   guarantee. Human review required — this tool highlights potential risks using a
   local, deterministic rules engine but does not guarantee HIPAA compliance."
