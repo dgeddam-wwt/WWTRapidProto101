@@ -1,7 +1,7 @@
 # HIPAA Email Review
 
 Patient-communication review and dispatch service for Kenstrel Health Alliance, rebuilt
-against the constraints in [`../Module-4-Demonstrate/AGENTS.md`](../Module-4-Demonstrate/AGENTS.md).
+against the constraints in [`AGENTS.md`](./AGENTS.md).
 
 Administrative staff paste a draft, see potential HIPAA Safe Harbor exposure scored by
 severity, and get an identifier-free replacement draft. Dispatch is a separate,

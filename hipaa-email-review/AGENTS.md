@@ -22,3 +22,40 @@ Healthcare patient communication service handling automated and manual email not
 ## PR & Validation Rules
 - Before opening a PR, ensure all tests pass and `npm run audit:phi` returns zero errors.
 - Include a security checklist confirmation in the PR description verifying no raw PHI exposure paths were introduced.
+
+---
+
+## Implementation Notes (added during the rebuild)
+
+These rules govern the `hipaa-email-review/` app in this directory. Run every check from
+here:
+
+```bash
+npm install
+npm run lint        # oxlint + tsc --noEmit
+npm test            # vitest
+npm run audit:phi   # must report 0 errors
+```
+
+`npm run build` compiles the server (`tsc -p tsconfig.server.json`) and the UI (Vite).
+Dev: `npm run dev:server` (port 8787) plus `npm run dev:web` (port 5173, proxies `/api`).
+
+### Precedence
+
+Where `../Module-4-Demonstrate/build_plan_claude_to_devin_revise.md` conflicts with this
+file — it specifies a 100%-client-side React app with no backend, no network calls, and no
+dispatch path — **this file wins**. Supporting context (customer scenario, concept
+definition, as-built prototype spec) remains in `../Module-4-Demonstrate/`.
+
+### Conventions worth preserving
+
+- Imports use explicit `.ts`/`.tsx` extensions (`allowImportingTsExtensions` +
+  `rewriteRelativeImportExtensions`), so one import style works for Vite, tsx, and tsc.
+- Any file containing PHI-shaped literals must be marked `@synthetic-data-only` and follow
+  the fixture conventions (`Patient_ID_Test_00n`, `Testpatient …` / `Dr. Testprovider`,
+  reserved `555-555-01xx` numbers, reserved `.invalid` domains). `npm run audit:phi`
+  enforces this repo-wide.
+- `console.*` is a lint error in `src/` — log through the pino logger, which masks PHI.
+- Email subjects come from the frozen allowlist in `src/shared/subjects.ts`. Never
+  interpolate a subject.
+- See `README.md` for the per-rule enforcement map and the PR security checklist.
